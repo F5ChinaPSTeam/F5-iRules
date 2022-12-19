@@ -1,0 +1,32 @@
+when RULE_INIT {
+    # Max DNS queries during detection period per source IP / destination domain
+    set static::maxq 180
+    # Detection & Blocking Period
+    set static::btime 60
+}
+when DNS_REQUEST {
+    set srcip [IP::remote_addr]
+    set qtype [DNS::question type]
+    set host_name [domain [DNS::question name] 3]
+    set key "$srcip:$host_name"
+    log local0.info "log of $key"
+if { ([class match $qtype equals TunnelType]) and [DNS::len] > 512 } {
+    if {[class match $host_name ends_with DNS_Whitelist] }{
+        log local0.info "key $key hit the whitelist"
+        return
+    } elseif {[class match $host_name ends_with DNS_Blacklist] }{
+        DNS::drop
+        log local0.info "key $key hit the blacklist"
+        return
+    } elseif {[table lookup $key] ne ""} {
+        set count [table incr $key]
+        if {$count > $static::maxq} {
+            DNS::drop
+            log local0.info "key $key count $count"
+            return
+        }
+    } else {
+        table add $key 1 indef $static::btime
+        }
+    }
+}
